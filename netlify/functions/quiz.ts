@@ -108,11 +108,21 @@ async function searchSpotifyTracks(token: string, query: string, offset: number)
 async function getAudioPreview(trackName: string, artistName: string): Promise<string | null> {
   const query = encodeURIComponent(`${trackName} ${artistName}`);
   try {
-    const response = await fetch(`https://api.deezer.com/search?q=${query}&limit=3`);
+    const response = await fetch(`https://api.deezer.com/search?q=${query}&limit=5`);
     if (!response.ok) return null;
     const data = (await response.json()) as DeezerSearchResult;
-    const match = data.data?.find((d) => d.preview);
-    return match?.preview ?? null;
+    for (const d of (data.data ?? [])) {
+      if (!d.preview) continue;
+      try {
+        const check = await fetch(d.preview, { method: 'HEAD' });
+        if (check.ok && check.headers.get('content-length') !== '0') {
+          return d.preview;
+        }
+      } catch {
+        continue;
+      }
+    }
+    return null;
   } catch {
     return null;
   }
