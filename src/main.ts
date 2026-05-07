@@ -20,10 +20,18 @@ interface GameStats {
 }
 
 const CLIP_DURATION_MS = 3000;
-const ANSWER_TIME_LIMIT = 10000; // 10 seconds to answer
 const BASE_POINTS = 100;
-const SPEED_BONUS_MAX = 150; // max bonus for fast answers
-const STREAK_MULTIPLIER = 0.5; // 50% bonus per streak
+const SPEED_BONUS_MAX = 150;
+const STREAK_MULTIPLIER = 0.5;
+
+// Animated music GIFs (royalty-free placeholders)
+const ROUND_VISUALS = [
+  'https://media.giphy.com/media/tqfS3mgQU28ko/giphy.gif',
+  'https://media.giphy.com/media/l0HlNQ03J5JxX2rDi/giphy.gif',
+  'https://media.giphy.com/media/4oMoIbIQrvCjm/giphy.gif',
+  'https://media.giphy.com/media/3o7TKGy6TBUPRMf9Go/giphy.gif',
+  'https://media.giphy.com/media/l3q2Z6S6n38zjPswo/giphy.gif',
+];
 
 let quizData: QuizData | null = null;
 let currentRound = 0;
@@ -31,9 +39,10 @@ let score = 0;
 let streak = 0;
 let audio: HTMLAudioElement | null = null;
 let timerInterval: ReturnType<typeof setInterval> | null = null;
-let answerTimerInterval: ReturnType<typeof setInterval> | null = null;
 let answerStartTime = 0;
 let answeredThisRound = false;
+let roundTimes: number[] = [];
+let roundResults: boolean[] = [];
 
 function $(id: string): HTMLElement {
   return document.getElementById(id)!;
@@ -81,63 +90,10 @@ function updateStreakBadge(): void {
   }
 }
 
-function startAnswerTimer(): void {
-  answerStartTime = Date.now();
-  answeredThisRound = false;
-  const fill = document.querySelector('.answer-timer-fill') as HTMLElement;
-  const label = $('answer-time-label');
-  fill.style.width = '100%';
-  fill.classList.remove('urgent', 'critical');
-  label.textContent = '10s';
-
-  answerTimerInterval = setInterval(() => {
-    if (answeredThisRound) {
-      clearInterval(answerTimerInterval!);
-      return;
-    }
-    const elapsed = Date.now() - answerStartTime;
-    const remaining = Math.max(0, ANSWER_TIME_LIMIT - elapsed);
-    const pct = (remaining / ANSWER_TIME_LIMIT) * 100;
-    fill.style.width = `${pct}%`;
-    label.textContent = `${(remaining / 1000).toFixed(1)}s`;
-
-    if (pct < 20) fill.classList.add('critical');
-    else if (pct < 40) fill.classList.add('urgent');
-
-    if (remaining <= 0) {
-      clearInterval(answerTimerInterval!);
-      handleTimeout();
-    }
-  }, 100);
-}
-
-function handleTimeout(): void {
-  answeredThisRound = true;
-  streak = 0;
-  updateStreakBadge();
-  stopClip();
-
-  document.querySelectorAll('.option-btn').forEach((el) => {
-    (el as HTMLButtonElement).disabled = true;
-    const question = quizData!.questions[currentRound];
-    if (el.textContent === question.correctAnswer) {
-      el.classList.add('correct');
-    }
-  });
-
-  $('feedback').textContent = `⏱ Time's up! It was: ${quizData!.questions[currentRound].correctAnswer}`;
-  $('feedback').className = 'feedback wrong';
-
-  if (currentRound < 4) {
-    $('next-btn').classList.remove('hidden');
-  } else {
-    setTimeout(showResults, 1500);
-  }
-}
-
 function calculatePoints(timeElapsed: number): { base: number; speed: number; streakBonus: number; total: number } {
   const base = BASE_POINTS;
-  const speedRatio = Math.max(0, 1 - timeElapsed / ANSWER_TIME_LIMIT);
+  // Faster answers get more bonus (up to 30 seconds considered)
+  const speedRatio = Math.max(0, 1 - timeElapsed / 30000);
   const speed = Math.round(SPEED_BONUS_MAX * speedRatio);
   const streakBonus = streak >= 2 ? Math.round((base + speed) * STREAK_MULTIPLIER * (streak - 1)) : 0;
   const total = base + speed + streakBonus;
@@ -165,10 +121,6 @@ function renderRound(): void {
 
   // Reset round state
   answeredThisRound = false;
-  if (answerTimerInterval) {
-    clearInterval(answerTimerInterval);
-    answerTimerInterval = null;
-  }
 
   updateProgressPills();
   $('score-label').textContent = `${score} pts`;
@@ -177,10 +129,10 @@ function renderRound(): void {
   $('next-btn').classList.add('hidden');
   $('points-popup').classList.add('hidden');
 
-  // Album art
+  // Random animated visual (not album art — that gives away the answer)
   const albumImg = $('album-art') as HTMLImageElement;
-  albumImg.src = question.albumArt || '';
-  albumImg.alt = 'Album art';
+  albumImg.src = ROUND_VISUALS[currentRound % ROUND_VISUALS.length];
+  albumImg.alt = 'Music visualization';
 
   // Options
   const optionsEl = $('options');
@@ -202,13 +154,13 @@ function renderRound(): void {
   document.querySelector('.pause-icon')!.classList.add('hidden');
   $('player-hint').textContent = 'Tap to play a 3-second clip';
 
-  // Reset timers
+  // Reset clip timer bar
   const timerFill = document.querySelector('.timer-fill') as HTMLElement;
   timerFill.style.width = '0%';
-  const answerFill = document.querySelector('.answer-timer-fill') as HTMLElement;
-  answerFill.style.width = '100%';
-  answerFill.classList.remove('urgent', 'critical');
-  $('answer-time-label').textContent = '';
+
+  // Hide answer timer (no longer used)
+  const answerTimerWrap = document.querySelector('.answer-timer-wrap') as HTMLElement;
+  if (answerTimerWrap) answerTimerWrap.style.display = 'none';
 }
 
 function playClip(): void {
@@ -246,9 +198,9 @@ function playClip(): void {
 
     if (elapsed >= CLIP_DURATION_MS) {
       stopClip();
-      // Start answer countdown after clip finishes
+      // Start silently tracking answer time after clip finishes
       if (!answeredThisRound) {
-        startAnswerTimer();
+        answerStartTime = Date.now();
       }
     }
   }, 50);
@@ -276,14 +228,13 @@ function handleAnswer(selected: string, btn: HTMLElement): void {
   if (answeredThisRound) return;
   answeredThisRound = true;
 
-  if (answerTimerInterval) {
-    clearInterval(answerTimerInterval);
-    answerTimerInterval = null;
-  }
-
   const question = quizData!.questions[currentRound];
   const isCorrect = selected === question.correctAnswer;
-  const timeElapsed = Date.now() - answerStartTime;
+  const timeElapsed = answerStartTime > 0 ? Date.now() - answerStartTime : 0;
+
+  // Record round time and result
+  roundTimes[currentRound] = timeElapsed;
+  roundResults[currentRound] = isCorrect;
 
   document.querySelectorAll('.option-btn').forEach((el) => {
     (el as HTMLButtonElement).disabled = true;
@@ -336,17 +287,6 @@ function spawnConfetti(): void {
 }
 
 function showResults(): void {
-  const correctCount = quizData!.questions.filter(
-    (q, i) => i < 5
-  ).length; // We track via score/streak instead
-
-  // Calculate correct answers from round results
-  const totalCorrectThisGame = Math.round(score / BASE_POINTS); // approximate
-  const actualCorrect = quizData!.questions.reduce((count, q, _i) => {
-    // We can't easily track this without state, use streak logic
-    return count;
-  }, 0);
-
   // Determine result emoji and title based on score
   let emoji: string;
   let title: string;
@@ -378,19 +318,26 @@ function showResults(): void {
   stats.lastPlayed = new Date().toISOString().split('T')[0];
   saveStats(stats);
 
+  const correctCount = roundResults.filter(Boolean).length;
+  const totalTime = roundTimes.reduce((sum, t) => sum + t, 0);
+  const avgTime = totalTime / roundTimes.length;
+
   const statsEl = $('results-stats');
   statsEl.innerHTML = `
-    <div class="stat-box"><span class="stat-value">${stats.gamesPlayed}</span><span class="stat-label">Played</span></div>
+    <div class="stat-box"><span class="stat-value">${correctCount}/5</span><span class="stat-label">Correct</span></div>
+    <div class="stat-box"><span class="stat-value">${(avgTime / 1000).toFixed(1)}s</span><span class="stat-label">Avg Time</span></div>
     <div class="stat-box"><span class="stat-value">${stats.bestScore}</span><span class="stat-label">Best Score</span></div>
-    <div class="stat-box"><span class="stat-value">${stats.longestStreak}</span><span class="stat-label">Best Streak</span></div>
   `;
 
   const summary = $('answers-summary');
   summary.innerHTML = '';
   quizData!.questions.forEach((q, i) => {
+    const timeTaken = roundTimes[i] != null ? `${(roundTimes[i] / 1000).toFixed(1)}s` : '-';
+    const icon = roundResults[i] ? '✓' : '✗';
+    const resultClass = roundResults[i] ? 'correct' : 'wrong';
     const div = document.createElement('div');
     div.className = 'answer-item';
-    div.innerHTML = `<span class="answer-num">${i + 1}</span><span>${q.correctAnswer}</span>`;
+    div.innerHTML = `<span class="answer-num ${resultClass}">${icon}</span><span>${q.correctAnswer}</span><span class="answer-time">${timeTaken}</span>`;
     summary.appendChild(div);
   });
 
@@ -409,6 +356,8 @@ async function init(): Promise<void> {
     currentRound = 0;
     score = 0;
     streak = 0;
+    roundTimes = [];
+    roundResults = [];
     showScreen('quiz');
     renderRound();
   } catch {

@@ -648,7 +648,21 @@ header {
   animation: shake 0.4s ease;
 }
 
-/* Built-with footer */
+/* Answer time in results */
+.answer-time {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.answer-num.correct {
+  color: var(--green);
+}
+
+.answer-num.wrong {
+  color: var(--red);
+}
 .built-with {
   text-align: center;
   padding: 1.5rem 1rem;
@@ -682,14 +696,6 @@ header {
   font-size: 1.4rem;
   margin-bottom: 1.5rem;
   color: #1db954;
-}
-
-.answer-item {
-  text-align: left;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  font-size: 0.85rem;
-  color: #c0c0d0;
 }
 
 #loading, #error {
