@@ -168,10 +168,20 @@ function playClip(): void {
 
   if (audio) {
     audio.pause();
+    audio.src = '';
+    audio.load();
     audio = null;
   }
 
-  audio = new Audio(question.previewUrl);
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+
+  audio = new Audio();
+  audio.preload = 'auto';
+  audio.crossOrigin = 'anonymous';
+  audio.src = question.previewUrl;
 
   const playBtn = $('play-btn') as HTMLButtonElement;
   playBtn.disabled = true;
@@ -181,34 +191,55 @@ function playClip(): void {
   $('player-hint').textContent = 'Listening...';
 
   const timerFill = document.querySelector('.timer-fill') as HTMLElement;
-  const startTime = Date.now();
 
-  audio.play().catch(() => {
-    playBtn.disabled = false;
-    playBtn.classList.remove('playing');
-    document.querySelector('.play-icon')!.classList.remove('hidden');
-    document.querySelector('.pause-icon')!.classList.add('hidden');
-    $('player-hint').textContent = 'Tap to play a 3-second clip';
-  });
+  const onCanPlay = (): void => {
+    audio!.removeEventListener('canplaythrough', onCanPlay);
+    audio!.removeEventListener('error', onError);
+    const startTime = Date.now();
 
-  timerInterval = setInterval(() => {
-    const elapsed = Date.now() - startTime;
-    const progress = Math.min((elapsed / CLIP_DURATION_MS) * 100, 100);
-    timerFill.style.width = `${progress}%`;
+    audio!.play().then(() => {
+      timerInterval = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min((elapsed / CLIP_DURATION_MS) * 100, 100);
+        timerFill.style.width = `${progress}%`;
 
-    if (elapsed >= CLIP_DURATION_MS) {
-      stopClip();
-      // Start silently tracking answer time after clip finishes
-      if (!answeredThisRound) {
-        answerStartTime = Date.now();
-      }
-    }
-  }, 50);
+        if (elapsed >= CLIP_DURATION_MS) {
+          stopClip();
+          if (!answeredThisRound) {
+            answerStartTime = Date.now();
+          }
+        }
+      }, 50);
+    }).catch(() => {
+      resetPlayButton();
+    });
+  };
+
+  const onError = (): void => {
+    audio!.removeEventListener('canplaythrough', onCanPlay);
+    audio!.removeEventListener('error', onError);
+    resetPlayButton();
+    $('player-hint').textContent = 'Audio unavailable — just guess!';
+  };
+
+  audio.addEventListener('canplaythrough', onCanPlay);
+  audio.addEventListener('error', onError);
+  audio.load();
+}
+
+function resetPlayButton(): void {
+  const playBtn = $('play-btn') as HTMLButtonElement;
+  playBtn.disabled = false;
+  playBtn.classList.remove('playing');
+  document.querySelector('.play-icon')!.classList.remove('hidden');
+  document.querySelector('.pause-icon')!.classList.add('hidden');
 }
 
 function stopClip(): void {
   if (audio) {
     audio.pause();
+    audio.src = '';
+    audio.load();
     audio = null;
   }
   if (timerInterval) {
